@@ -1,0 +1,9 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 40px;
+    text-align: center;
+}
+.greeting {
+    color: #333;
+    font-size: 24px;
+}

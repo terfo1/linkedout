@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Registration</title>
+  <link rel="stylesheet" href="../ui/static/style.css">
+</head>
+<body>
+<div class="wrapper">
+  <div class="box">
+    <div class="left">
+      <img src="../static/img/logo.png" alt="" width="150px">
+    </div>
+    <div class="right">
+      <form  id="registrationForm" onsubmit="registerUser(event)">
+        <h1>Sign Up</h1>
+        <input type="text"  id="username"  name="username" placeholder="Username" required>
+
+        <input type="password" id="password" name="password" placeholder="Password" required>
+        <input type="password" placeholder="Confirm Password" required>
+        <input class="button" type="submit" value="Register">
+        <a href="login">Log in</a>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+  function registerUser(event) {
+    event.preventDefault();
+
+    const username = document.getElementById("username").value;
+    const password = document.getElementById("password").value;
+    const userData = {
+      username: username,
+      password: password
+    };
+
+    fetch("/register", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(userData)
+    })
+            .then(response => {
+              console.log("Response Status:", response.status);
+              if (!response.ok) {
+                throw new Error("Registration failed");
+              }
+              return response.json();
+            })
+            .then(data => {
+              console.log("Response Data:", data);
+            })
+            .catch(error => {
+              console.error("Error:", error);
+            });
+  }
+</script>
+</body>
+</html>
