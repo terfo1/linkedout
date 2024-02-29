@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 	"html/template"
 	"io"
+	"net/smtp"
 	"time"
 )
 
@@ -19,9 +21,12 @@ const (
 
 type (
 	User struct {
-		Email    string
-		Name     string
-		password string
+		Email                       string
+		Name                        string
+		Password                    string
+		ConfirmationToken           string
+		ConfirmationTokenExpiration time.Time
+		email_confirmed             bool
 	}
 )
 type RegisterRequest struct {
@@ -30,6 +35,34 @@ type RegisterRequest struct {
 	Password string `json:"password"`
 }
 
+func sendConfirmationEmail(to, token string) error {
+	from := "alisher.temirhan@gmail.com"
+	password := "lfcv mmen wonp ggrx"
+
+	// Receiver email address.
+	toEmail := []string{to}
+	smtpHost := "smtp.gmail.com"
+	smtpPort := "587"
+
+	// Message.
+	message := []byte("To: " + to + "\r\n" +
+		"Confirm your email address\r\n" +
+		"\r\n" +
+		"Here is your confirmation token:\r\n" +
+		token + "\r\n")
+
+	// Authentication.
+	auth := smtp.PlainAuth("", from, password, smtpHost)
+
+	// Sending email.
+	err := smtp.SendMail(smtpHost+":"+smtpPort, auth, from, toEmail, message)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	fmt.Println("Email Sent Successfully!")
+	return nil
+}
 func (app *application) renderTemplate(w io.Writer, name string) error {
 	ts, err := template.ParseFiles(name)
 	if err != nil {
@@ -62,15 +95,18 @@ func (h *AuthHandler) register(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
 	}
-	err := h.DB.RegisterUser(req.Email, req.Name, req.Password)
+	confirmationToken := uuid.NewString()
+	tokenExpiration := time.Now().Add(24 * time.Hour)
+	err := h.DB.RegisterUser(req.Email, req.Name, req.Password, confirmationToken, tokenExpiration)
 	if err == ErrUserAlreadyExists {
 		h.App.logger.Info("User already exists")
 		return c.Status(fiber.StatusConflict).SendString("user already exists")
 	} else if err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 	}
+	sendConfirmationEmail(req.Email, confirmationToken)
 	c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
-	return c.SendStatus(fiber.StatusCreated)
+	return c.Redirect("/confirm", 301)
 }
 
 type LoginRequest struct {
@@ -87,17 +123,35 @@ var (
 
 var jwtSecretKey = []byte("secretka")
 
+func (h *AuthHandler) serveLogin(c *fiber.Ctx) error {
+	var buf bytes.Buffer
+	if err := h.App.renderTemplate(&buf, "ui/pages/login.html"); err != nil {
+		h.App.logger.Error(err)
+		return c.Status(fiber.StatusInternalServerError).SendString("Internal Server Error")
+	}
+	c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
+	return c.Status(fiber.StatusOK).Send(buf.Bytes())
+}
 func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	regReq := LoginRequest{}
 	if err := c.BodyParser(&regReq); err != nil {
 		return fmt.Errorf("body parser: %w", err)
 	}
-
+	fmt.Println(regReq)
 	user, err := h.DB.GetUserByEmail(regReq.Email)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString("Internal Server Error")
+		return c.Status(fiber.StatusInternalServerError).SendString("getuserbyemail fail")
 	}
-	err = bcrypt.CompareHashAndPassword([]byte(user.password), []byte(regReq.Password))
+	confirmedemail, err := h.DB.ConfirmedEmail(user.Email)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).SendString("confirm failed")
+	}
+	fmt.Println("here is email" + user.Email)
+	if !confirmedemail {
+		c.SendString("Email is not confirmed")
+		return c.Redirect("/login")
+	}
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(regReq.Password))
 	if err != nil {
 		// If the error is not nil, the comparison failed, indicating the password is incorrect
 		return errBadCredentials
@@ -163,4 +217,31 @@ func jwtPayloadFromRequest(c *fiber.Ctx) (jwt.MapClaims, bool) {
 	}
 
 	return payload, true
+}
+func (h *AuthHandler) serveconfirm(c *fiber.Ctx) error {
+	var buf bytes.Buffer
+	if err := h.App.renderTemplate(&buf, "ui/pages/confirm.html"); err != nil {
+		h.App.logger.Error(err)
+		return c.Status(fiber.StatusInternalServerError).SendString("Internal Server Error")
+	}
+	c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
+	return c.Status(fiber.StatusOK).Send(buf.Bytes())
+}
+func (h *AuthHandler) ConfirmEmail(c *fiber.Ctx) error {
+	token := c.FormValue("token")
+	if token == "" {
+		return c.Status(fiber.StatusBadRequest).SendString("Missing token")
+	}
+	user, err := h.DB.GetUserByConfirmToken(token)
+	if err != nil {
+		h.App.logger.Error(err)
+		return c.Status(fiber.StatusInternalServerError).SendString("Error processing your request")
+	}
+	fmt.Println("Here is email" + user.Email)
+	err = h.DB.UpdateConfirm(token)
+	if err != nil {
+		h.App.logger.Error(err)
+		return c.Status(fiber.StatusInternalServerError).SendString("Failed to confirm email")
+	}
+	return c.Redirect("/login")
 }

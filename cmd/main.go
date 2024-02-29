@@ -52,7 +52,10 @@ func main() {
 	app.fiberApp.Get("/", app.homepage)
 	publicGroup.Get("/register", authHandler.serveregisterpage)
 	publicGroup.Post("/register", authHandler.register)
+	publicGroup.Get("/login", authHandler.serveLogin)
 	publicGroup.Post("/login", authHandler.Login)
+	publicGroup.Get("/confirm", authHandler.serveconfirm)
+	publicGroup.Post("/confirm", authHandler.ConfirmEmail)
 	authorizedGroup := app.fiberApp.Group("")
 	authorizedGroup.Use(jwtware.New(jwtware.Config{
 		SigningKey: jwtware.SigningKey{

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="static/login.css">
+  <title>Confirmation</title>
+</head>
+<body>
+<div class="container">
+  <h2>Confirmation message sent to email paste it here!</h2>
+  <form action="/confirm" method="post">
+    <input type="text" name="token" placeholder="Write token here" required>
+    <input type="submit" value="Send">
+  </form>
+</div>
+</body>
+</html>
