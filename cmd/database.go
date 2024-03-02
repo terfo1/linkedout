@@ -91,3 +91,64 @@ func (db *DB) UpdateConfirm(token string) error {
 	db.Pool.QueryRow(ctx, "UPDATE users SET email_confirmed = TRUE WHERE confirmation_token = $1", token)
 	return nil
 }
+func (db *DB) QueryJobs(nameFilter, companyFilter, sort string, pageSizeNum, offset int, email string) ([]Job, error) {
+	ctx := context.Background()
+	query := `SELECT id, name, company, description, added_date FROM jobs WHERE 1=1`
+
+	args := []interface{}{}
+	if nameFilter != "" {
+		query += fmt.Sprintf(" AND name ILIKE $%d", len(args)+1)
+		args = append(args, "%"+nameFilter+"%")
+	}
+	if companyFilter != "" {
+		query += fmt.Sprintf(" AND company ILIKE $%d", len(args)+1)
+		args = append(args, "%"+companyFilter+"%")
+	}
+
+	if sort != "" {
+		query += fmt.Sprintf(" ORDER BY %s", sort)
+	} else {
+		query += " ORDER BY added_date DESC"
+	}
+
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, pageSizeNum, offset)
+
+	rows, err := db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	jobs := make([]Job, 0)
+	for rows.Next() {
+		var job Job
+		if err := rows.Scan(&job.ID, &job.Name, &job.Company, &job.Description, &job.AddedDate); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+
+	return jobs, nil
+}
+func (db *DB) CountJobs(nameFilter, companyFilter, email string) (int, error) {
+	ctx := context.Background()
+	query := "SELECT COUNT(*) FROM jobs WHERE 1=1"
+
+	args := []interface{}{}
+	if nameFilter != "" {
+		query += fmt.Sprintf(" AND name ILIKE $%d", len(args)+1)
+		args = append(args, "%"+nameFilter+"%")
+	}
+	if companyFilter != "" {
+		query += fmt.Sprintf(" AND company ILIKE $%d", len(args)+1)
+		args = append(args, "%"+companyFilter+"%")
+	}
+	var count int
+	err := db.Pool.QueryRow(ctx, query, args...).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}

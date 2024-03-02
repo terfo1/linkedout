@@ -12,6 +12,7 @@ import (
 	"html/template"
 	"io"
 	"net/smtp"
+	"strconv"
 	"time"
 )
 
@@ -27,6 +28,14 @@ type (
 		ConfirmationToken           string
 		ConfirmationTokenExpiration time.Time
 		email_confirmed             bool
+	}
+	Job struct {
+		ID          int
+		Name        string
+		Company     string
+		Description string
+		AddedDate   time.Time
+		Email       string
 	}
 )
 type RegisterRequest struct {
@@ -63,7 +72,7 @@ func sendConfirmationEmail(to, token string) error {
 	fmt.Println("Email Sent Successfully!")
 	return nil
 }
-func (app *application) renderTemplate(w io.Writer, name string) error {
+func (app *application) renderTemplate(w io.Writer, name string, data interface{}) error {
 	ts, err := template.ParseFiles(name)
 	if err != nil {
 		app.logger.Error(err)
@@ -73,22 +82,10 @@ func (app *application) renderTemplate(w io.Writer, name string) error {
 	return err
 }
 func (app *application) homepage(c *fiber.Ctx) error {
-	var buf bytes.Buffer
-	if err := app.renderTemplate(&buf, "ui/pages/index.html"); err != nil {
-		app.logger.Error(err)
-		return c.Status(fiber.StatusInternalServerError).SendString("Internal Server Error")
-	}
-	c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
-	return c.Status(fiber.StatusOK).Send(buf.Bytes())
+	return c.Render("homepage", nil)
 }
 func (h *AuthHandler) serveregisterpage(c *fiber.Ctx) error {
-	var buf bytes.Buffer
-	if err := h.App.renderTemplate(&buf, "ui/pages/register.html"); err != nil {
-		h.App.logger.Error(err)
-		return c.Status(fiber.StatusInternalServerError).SendString("Internal Server Error")
-	}
-	c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
-	return c.Status(fiber.StatusOK).Send(buf.Bytes())
+	return c.Render("register", nil)
 }
 func (h *AuthHandler) register(c *fiber.Ctx) error {
 	var req RegisterRequest
@@ -115,6 +112,7 @@ type LoginRequest struct {
 }
 type LoginResponse struct {
 	AccessToken string `json:"access_token"`
+	RedirectURL string `json:"redirectUrl"`
 }
 
 var (
@@ -124,13 +122,7 @@ var (
 var jwtSecretKey = []byte("secretka")
 
 func (h *AuthHandler) serveLogin(c *fiber.Ctx) error {
-	var buf bytes.Buffer
-	if err := h.App.renderTemplate(&buf, "ui/pages/login.html"); err != nil {
-		h.App.logger.Error(err)
-		return c.Status(fiber.StatusInternalServerError).SendString("Internal Server Error")
-	}
-	c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
-	return c.Status(fiber.StatusOK).Send(buf.Bytes())
+	return c.Render("login", nil)
 }
 func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	regReq := LoginRequest{}
@@ -146,7 +138,6 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString("confirm failed")
 	}
-	fmt.Println("here is email" + user.Email)
 	if !confirmedemail {
 		c.SendString("Email is not confirmed")
 		return c.Redirect("/login")
@@ -162,14 +153,19 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, payload)
-
 	t, err := token.SignedString(jwtSecretKey)
+	fmt.Println("ss", t)
 	if err != nil {
 		logrus.WithError(err).Error("JWT token signing")
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
-
-	return c.JSON(LoginResponse{AccessToken: t})
+	c.Cookie(&fiber.Cookie{
+		Name:     "jwt",
+		Value:    t,
+		Expires:  time.Now().Add(24 * time.Hour),
+		HTTPOnly: true,
+	})
+	return c.Redirect("/profile")
 }
 
 type ProfileResponse struct {
@@ -178,11 +174,13 @@ type ProfileResponse struct {
 }
 
 func (h *userHandler) profile(c *fiber.Ctx) error {
-	jwtPayload, ok := jwtPayloadFromRequest(c)
+	jwtPayload, ok, err := jwtPayloadFromRequest(c)
 	if !ok {
-		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+		return c.Status(fiber.StatusUnauthorized).SendString("UnAuthorizeed")
 	}
-
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).SendString(err.Error())
+	}
 	userEmail, ok := jwtPayload["sub"].(string)
 	if !ok {
 		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized - user identifier not found in token")
@@ -193,34 +191,32 @@ func (h *userHandler) profile(c *fiber.Ctx) error {
 		h.App.logger.Error(err)
 		return c.Status(fiber.StatusNotFound).SendString("User not found")
 	}
-
-	return c.JSON(ProfileResponse{
-		Email: userInfo.Email,
-		Name:  userInfo.Name,
+	return c.Render("profile", fiber.Map{
+		"Email": userInfo.Email,
+		"Name":  userInfo.Name,
 	})
 }
-func jwtPayloadFromRequest(c *fiber.Ctx) (jwt.MapClaims, bool) {
-	jwtToken, ok := c.Context().Value(contextKeyUser).(*jwt.Token)
+func jwtPayloadFromRequest(c *fiber.Ctx) (jwt.MapClaims, bool, error) {
+	jwtToken, ok := c.Locals(contextKeyUser).(*jwt.Token)
 	if !ok {
-		logrus.WithFields(logrus.Fields{
-			"jwt_token_context_value": c.Context().Value(contextKeyUser),
-		}).Error("wrong type of JWT token in context")
-		return nil, false
+		return nil, false, errors.New("JWT token not found in context")
+	}
+
+	if !jwtToken.Valid {
+		return nil, false, errors.New("invalid or expired JWT token")
 	}
 
 	payload, ok := jwtToken.Claims.(jwt.MapClaims)
 	if !ok {
-		logrus.WithFields(logrus.Fields{
-			"jwt_token_claims": jwtToken.Claims,
-		}).Error("wrong type of JWT token claims")
-		return nil, false
+		return nil, false, errors.New("error extracting claims from JWT token")
 	}
 
-	return payload, true
+	return payload, true, nil
 }
+
 func (h *AuthHandler) serveconfirm(c *fiber.Ctx) error {
 	var buf bytes.Buffer
-	if err := h.App.renderTemplate(&buf, "ui/pages/confirm.html"); err != nil {
+	if err := h.App.renderTemplate(&buf, "ui/pages/confirm.html", nil); err != nil {
 		h.App.logger.Error(err)
 		return c.Status(fiber.StatusInternalServerError).SendString("Internal Server Error")
 	}
@@ -244,4 +240,59 @@ func (h *AuthHandler) ConfirmEmail(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).SendString("Failed to confirm email")
 	}
 	return c.Redirect("/login")
+}
+func (h *userHandler) Jobs(c *fiber.Ctx) error {
+	payload, ok, err := jwtPayloadFromRequest(c)
+	if !ok || err != nil {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+	userEmail, ok := payload["sub"].(string)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized - user identifier not found in token")
+	}
+	nameFilter := c.Query("name")
+	companyFilter := c.Query("company")
+	sort := c.Query("sort", "added_date DESC") // Значение по умолчанию
+	page := c.Query("page", "1")
+	pageSize := c.Query("pageSize", "3")
+	pageNum, err := strconv.Atoi(page)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid page number"})
+	}
+
+	pageSizeNum, err := strconv.Atoi(pageSize)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid page size"})
+	}
+	offset := (pageNum - 1) * pageSizeNum
+	totalCount, err := h.DB.CountJobs(nameFilter, companyFilter, userEmail)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to count jobs"})
+	}
+
+	totalPages := (totalCount + pageSizeNum - 1) / pageSizeNum
+	pages := make([]int, totalPages)
+	for i := range pages {
+		pages[i] = i + 1
+	}
+	jobs, err := h.DB.QueryJobs(nameFilter, companyFilter, sort, pageSizeNum, offset, userEmail)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch jobs"})
+	}
+
+	data := fiber.Map{
+		"Title":         "Job Listings",
+		"Jobs":          jobs,
+		"Pages":         pages,
+		"CurrentPage":   pageNum,
+		"NameFilter":    nameFilter,
+		"CompanyFilter": companyFilter,
+		"Sort":          sort,
+	}
+
+	if err := c.Render("jobs", data); err != nil {
+		return c.Status(fiber.StatusInternalServerError).SendString("Internal Server Error")
+	}
+
+	return nil
 }

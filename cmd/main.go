@@ -4,6 +4,7 @@ import (
 	"flag"
 	jwtware "github.com/gofiber/contrib/jwt"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/template/html/v2"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"os"
@@ -35,7 +36,8 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		logger.Fatal("Error loading .env file")
 	}
-	fiberapp := fiber.New()
+	fiberapp := fiber.New(
+		fiber.Config{Views: html.New("./ui/pages", ".tmpl")})
 	app := &application{
 		fiberApp: fiberapp,
 		logger:   logger,
@@ -56,7 +58,14 @@ func main() {
 	publicGroup.Post("/login", authHandler.Login)
 	publicGroup.Get("/confirm", authHandler.serveconfirm)
 	publicGroup.Post("/confirm", authHandler.ConfirmEmail)
-	authorizedGroup := app.fiberApp.Group("")
+	authorizedGroup := app.fiberApp.Group("/")
+	app.fiberApp.Use(func(c *fiber.Ctx) error {
+		jwtToken := c.Cookies("jwt")
+		if jwtToken != "" {
+			c.Request().Header.Add("Authorization", "Bearer "+jwtToken)
+		}
+		return c.Next()
+	})
 	authorizedGroup.Use(jwtware.New(jwtware.Config{
 		SigningKey: jwtware.SigningKey{
 			Key: jwtSecretKey,
@@ -64,6 +73,7 @@ func main() {
 		ContextKey: contextKeyUser,
 	}))
 	authorizedGroup.Get("/profile", userHandler.profile)
+	authorizedGroup.Get("/jobs", userHandler.Jobs)
 	address := flag.String("addr", ":4000", "HTTP server address")
 	flag.Parse()
 	logger.Fatal(app.fiberApp.Listen(*address))

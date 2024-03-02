@@ -1,0 +1,51 @@
+<!-- ui/pages/profile.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>User Profile</title>
+</head>
+<body>
+<h1>User Profile</h1>
+<p>Email: {{.Email}}</p>
+<p>Name: {{.Name}}</p>
+</body>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const accessToken = localStorage.getItem('accessToken');
+        if (!accessToken) {
+            console.error('No access token stored');
+            // Handle missing token, e.g., redirect to login
+            window.location.href = '/login';
+            return;
+        }
+
+        fetch('/profile', {
+            method: 'GET',
+            headers: {
+                'Authorization': 'Bearer ' + accessToken,
+                'Content-Type': 'application/json'
+            },
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(profileData => {
+                // Use profileData to update the DOM or display user information
+                console.log(profileData);
+                // Example: document.getElementById('userName').textContent = profileData.name;
+            })
+            .catch(error => {
+                console.error('Failed to fetch profile:', error);
+                // Potentially handle unauthorized access or redirect
+                if (error.message === 'Network response was not ok') {
+                    window.location.href = '/login'; // Redirect to login if unauthorized
+                }
+            });
+    });
+
+</script>
+</html>
