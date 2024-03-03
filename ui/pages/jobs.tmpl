@@ -43,6 +43,7 @@
 <div id="nums">
   <!-- Pagination buttons -->
   {{range .Pages}}
+  <a href="?page={{.}}&name={{$.NameFilter}}&company={{$.CompanyFilter}}&sort={{$.Sort}}">{{.}}</a>
   {{end}}
 </div>
 </body>

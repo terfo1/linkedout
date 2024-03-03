@@ -4,10 +4,12 @@ import (
 	"flag"
 	jwtware "github.com/gofiber/contrib/jwt"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/template/html/v2"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"os"
+	"time"
 )
 
 type application struct {
@@ -30,9 +32,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	logger.SetOutput(file)
+	logger.Out = file
 	logger.SetFormatter(&logrus.JSONFormatter{})
-
+	logger.WithFields(logrus.Fields{
+		"event":  "application_start",
+		"status": "success",
+	}).Error("app started")
 	if err := godotenv.Load(); err != nil {
 		logger.Fatal("Error loading .env file")
 	}
@@ -48,6 +53,10 @@ func main() {
 		logger.Fatalf("Failed to connect to database: %v", err)
 	}
 	app.fiberApp.Static("/static/", "./ui/static/")
+	app.fiberApp.Use(limiter.New(limiter.Config{
+		Max:        100,
+		Expiration: 1 * time.Minute,
+	}))
 	userHandler := userHandler{DB: db, App: app}
 	authHandler := AuthHandler{DB: db}
 	publicGroup := app.fiberApp.Group("")
@@ -74,7 +83,10 @@ func main() {
 	}))
 	authorizedGroup.Get("/profile", userHandler.profile)
 	authorizedGroup.Get("/jobs", userHandler.Jobs)
+	authorizedGroup.Get("/admin", userHandler.ServeAdmin)
+	authorizedGroup.Post("/admin", userHandler.Admin)
 	address := flag.String("addr", ":4000", "HTTP server address")
 	flag.Parse()
 	logger.Fatal(app.fiberApp.Listen(*address))
+	logger.Info("App started")
 }

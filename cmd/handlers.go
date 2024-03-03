@@ -7,7 +7,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 	"html/template"
 	"io"
@@ -28,6 +27,7 @@ type (
 		ConfirmationToken           string
 		ConfirmationTokenExpiration time.Time
 		email_confirmed             bool
+		is_admin                    bool
 	}
 	Job struct {
 		ID          int
@@ -156,7 +156,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	t, err := token.SignedString(jwtSecretKey)
 	fmt.Println("ss", t)
 	if err != nil {
-		logrus.WithError(err).Error("JWT token signing")
+		h.App.logger.Error(err)
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
 	c.Cookie(&fiber.Cookie{
@@ -165,6 +165,9 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		Expires:  time.Now().Add(24 * time.Hour),
 		HTTPOnly: true,
 	})
+	if h.DB.CheckForAdmin(user.Email) {
+		c.Redirect("/admin")
+	}
 	return c.Redirect("/profile")
 }
 
@@ -293,6 +296,20 @@ func (h *userHandler) Jobs(c *fiber.Ctx) error {
 	if err := c.Render("jobs", data); err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString("Internal Server Error")
 	}
-
 	return nil
+}
+func (h *userHandler) Admin(c *fiber.Ctx) error {
+	req := Job{}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
+	}
+	added_date := time.Now()
+	err := h.DB.InsertJob(req.Name, req.Company, req.Description, added_date, req.Email)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+	}
+	return c.Redirect("/admin")
+}
+func (h *userHandler) ServeAdmin(c *fiber.Ctx) error {
+	return c.Render("admin", nil)
 }

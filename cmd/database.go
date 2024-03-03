@@ -38,7 +38,7 @@ func (db *DB) RegisterUser(email, name, password string, confirmationToken strin
 		return err
 	}
 	if exists {
-		return ErrUserAlreadyExists // You should define this error
+		return ErrUserAlreadyExists
 	}
 	_, err = db.Pool.Exec(ctx, "INSERT INTO users (email, name, password,confirmation_token,token_expiration) VALUES ($1, $2, $3, $4, $5)", email, name, string(hashedPassword), confirmationToken, tokenExpiration)
 	return err
@@ -49,7 +49,6 @@ func (db *DB) GetUserByEmail(email string) (*User, error) {
 
 	err := db.Pool.QueryRow(ctx, "SELECT email, name, password FROM users WHERE email=$1", email).Scan(&user.Email, &user.Name, &user.Password)
 	if err != nil {
-		// This will print more detailed error information
 		fmt.Printf("Error in GetUserByEmail: %v\n", err)
 		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("no user found with the email %s: %w", email, err)
@@ -144,6 +143,7 @@ func (db *DB) CountJobs(nameFilter, companyFilter, email string) (int, error) {
 		query += fmt.Sprintf(" AND company ILIKE $%d", len(args)+1)
 		args = append(args, "%"+companyFilter+"%")
 	}
+
 	var count int
 	err := db.Pool.QueryRow(ctx, query, args...).Scan(&count)
 	if err != nil {
@@ -151,4 +151,22 @@ func (db *DB) CountJobs(nameFilter, companyFilter, email string) (int, error) {
 	}
 
 	return count, nil
+}
+func (db *DB) CheckForAdmin(email string) bool {
+	ctx := context.Background()
+	var isAdmin bool
+	err := db.Pool.QueryRow(ctx, "SELECT is_admin FROM users WHERE email=$1", email).Scan(&isAdmin)
+	if err != nil {
+		fmt.Println("You are not admin")
+		return false
+	}
+	if isAdmin {
+		return true
+	}
+	return false
+}
+func (db *DB) InsertJob(name string, company string, description string, added_date time.Time, email string) error {
+	ctx := context.Background()
+	_, err := db.Pool.Exec(ctx, "INSERT INTO jobs (name,company,description,added_date,contacts) VALUES ($1, $2, $3, $4, $5)", name, company, description, added_date, email)
+	return err
 }
