@@ -67,8 +67,6 @@ func (db *DB) GetUserByConfirmToken(token string) (*User, error) {
 		logrus.Info("Didn't get token")
 		return nil, err
 	}
-
-	// Optionally, check if the token is expired
 	if user.ConfirmationTokenExpiration.Before(time.Now()) {
 		return nil, errors.New("confirmation token is expired")
 	}
@@ -169,4 +167,26 @@ func (db *DB) InsertJob(name string, company string, description string, added_d
 	ctx := context.Background()
 	_, err := db.Pool.Exec(ctx, "INSERT INTO jobs (name,company,description,added_date,contacts) VALUES ($1, $2, $3, $4, $5)", name, company, description, added_date, email)
 	return err
+}
+func (db *DB) GetUsersEmail() ([]string, error) {
+	ctx := context.Background()
+	var users []string
+	rows, err := db.Pool.Query(ctx, "SELECT email FROM users")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		users = append(users, email)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return users, nil
 }

@@ -48,22 +48,18 @@ func sendConfirmationEmail(to, token string) error {
 	from := "alisher.temirhan@gmail.com"
 	password := "lfcv mmen wonp ggrx"
 
-	// Receiver email address.
 	toEmail := []string{to}
 	smtpHost := "smtp.gmail.com"
 	smtpPort := "587"
 
-	// Message.
 	message := []byte("To: " + to + "\r\n" +
 		"Confirm your email address\r\n" +
 		"\r\n" +
 		"Here is your confirmation token:\r\n" +
 		token + "\r\n")
 
-	// Authentication.
 	auth := smtp.PlainAuth("", from, password, smtpHost)
 
-	// Sending email.
 	err := smtp.SendMail(smtpHost+":"+smtpPort, auth, from, toEmail, message)
 	if err != nil {
 		fmt.Println(err)
@@ -255,7 +251,7 @@ func (h *userHandler) Jobs(c *fiber.Ctx) error {
 	}
 	nameFilter := c.Query("name")
 	companyFilter := c.Query("company")
-	sort := c.Query("sort", "added_date DESC") // Значение по умолчанию
+	sort := c.Query("sort", "added_date DESC")
 	page := c.Query("page", "1")
 	pageSize := c.Query("pageSize", "3")
 	pageNum, err := strconv.Atoi(page)
@@ -299,17 +295,81 @@ func (h *userHandler) Jobs(c *fiber.Ctx) error {
 	return nil
 }
 func (h *userHandler) Admin(c *fiber.Ctx) error {
-	req := Job{}
-	if err := c.BodyParser(&req); err != nil {
+	form, err := c.MultipartForm()
+	if err != nil {
 		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
 	}
-	added_date := time.Now()
-	err := h.DB.InsertJob(req.Name, req.Company, req.Description, added_date, req.Email)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+
+	var jobs []Job
+	for i := range form.Value["name[]"] {
+		job := Job{
+			Name:        form.Value["name[]"][i],
+			Company:     form.Value["company[]"][i],
+			Description: form.Value["description[]"][i],
+			Email:       form.Value["email[]"][i],
+		}
+		jobs = append(jobs, job)
 	}
+
+	numJobs := len(jobs)
+	errCh := make(chan error, numJobs)
+
+	for _, job := range jobs {
+		go func(j Job) {
+			addedDate := time.Now()
+			err := h.DB.InsertJob(j.Name, j.Company, j.Description, addedDate, j.Email)
+			errCh <- err
+		}(job)
+	}
+
+	for i := 0; i < numJobs; i++ {
+		if err := <-errCh; err != nil {
+			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		}
+	}
+
 	return c.Redirect("/admin")
 }
 func (h *userHandler) ServeAdmin(c *fiber.Ctx) error {
-	return c.Render("admin", nil)
+	users, err := h.DB.GetUsersEmail()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).SendString("Failed to fetch users")
+	}
+	return c.Render("admin", fiber.Map{
+		"Users": users,
+	})
+}
+func (h *userHandler) sendAdminEmail(c *fiber.Ctx) error {
+	from := "alisher.temirhan@gmail.com"
+	password := "lfcv mmen wonp ggrx"
+
+	toEmail := c.FormValue("userEmail")
+	smtpHost := "smtp.gmail.com"
+	smtpPort := "587"
+
+	subject := "Message"
+	body := c.FormValue("msg")
+	message := []byte(
+		"MIME-Version: 1.0\r\n" +
+			"Content-Type: text/plain; charset=\"utf-8\"\r\n" +
+			"From: " + from + "\r\n" +
+			"To: " + toEmail + "\r\n" +
+			"Subject: " + subject + "\r\n\r\n" +
+			body,
+	)
+
+	auth := smtp.PlainAuth("", from, password, smtpHost)
+
+	toEmails := []string{toEmail}
+	err := smtp.SendMail(smtpHost+":"+smtpPort, auth, from, toEmails, message)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	fmt.Println("Email Sent Successfully!")
+	return nil
+}
+
+type JobRequest struct {
+	Jobs []Job `json:"jobs"`
 }

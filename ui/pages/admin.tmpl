@@ -1,29 +1,68 @@
-{{/* adminPage.tmpl */}}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Admin Dashboard</title>
+    <script>
+        function addJobField() {
+            const jobFieldsContainer = document.getElementById('jobFieldsContainer');
+            const newJobField = document.createElement('div');
+            newJobField.innerHTML = `
+                <label for="name">Job Name:</label>
+                <input type="text" name="name[]" required>
+
+                <label for="company">Company:</label>
+                <input type="text" name="company[]" required>
+
+                <label for="description">Description:</label>
+                <textarea name="description[]" required></textarea>
+
+                <label for="email">Contact Email:</label>
+                <input type="email" name="email[]" required>
+                <hr>
+            `;
+            jobFieldsContainer.appendChild(newJobField);
+        }
+    </script>
 </head>
 <body>
     <h1>Admin Dashboard</h1>
     <section>
         <h2>Add Job</h2>
-        <form method="POST" action="/admin">
-            <label for="name">Job Name:</label>
-            <input type="text" id="name" name="name" required>
+        <form method="POST" action="/admin" enctype="multipart/form-data">
+            <div id="jobFieldsContainer">
+                <div>
+                    <label for="name">Job Name:</label>
+                    <input type="text" name="name[]" required>
 
-            <label for="company">Company:</label>
-            <input type="text" id="company" name="company" required>
+                    <label for="company">Company:</label>
+                    <input type="text" name="company[]" required>
 
-            <label for="description">Description:</label>
-            <textarea id="description" name="description" required></textarea>
+                    <label for="description">Description:</label>
+                    <textarea name="description[]" required></textarea>
 
-            <label for="email">Contact Email:</label>
-            <input type="email" id="email" name="email" required>
-
-            <button type="submit">Add Job</button>
+                    <label for="email">Contact Email:</label>
+                    <input type="email" name="email[]" required>
+                    <hr>
+                </div>
+            </div>
+            <button type="button" onclick="addJobField()">Add Job</button>
+            <button type="submit">Add All Jobs</button>
         </form>
     </section>
+    <section>
+        <h2>Send Email</h2>
+                <form method="POST" action="/admin/send-mail">
+                             <label for="userEmail">Select User:</label>
+                             <select name="userEmail" id="userEmail">
+                                 {{range .Users}}
+                                 <option value="{{.}}">{{.}}</option>
+                                 {{end}}
+                             </select>
+                             <label for="msg">Message</label>
+                             <input type="text" name="msg" required>
+                             <button type="submit">Send</button>
+                </form>
+        </section>
 </body>
 </html>

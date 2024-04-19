@@ -85,6 +85,7 @@ func main() {
 	authorizedGroup.Get("/jobs", userHandler.Jobs)
 	authorizedGroup.Get("/admin", userHandler.ServeAdmin)
 	authorizedGroup.Post("/admin", userHandler.Admin)
+	authorizedGroup.Post("/admin/send-mail", userHandler.sendAdminEmail)
 	address := flag.String("addr", ":10000", "HTTP server address")
 	flag.Parse()
 	logger.Fatal(app.fiberApp.Listen(*address))
