@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Chat</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="chat-container">
+    <div id="messages"></div>
+    <form id="chat-form">
+        <input name="admin_msg" type="text" id="message-input" placeholder="Type your message..." autocomplete="off" required>
+        <button type="submit">Send</button>
+    </form>
+</div>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const socket = new WebSocket('ws://localhost:8080/');
+        const messagesContainer = document.getElementById('messages');
+        const chatForm = document.getElementById('chat-form');
+        const messageInput = document.getElementById('message-input');
+
+        socket.addEventListener('open', function (event) {
+            console.log('WebSocket connection opened');
+        });
+
+        socket.addEventListener('error', function (event) {
+            console.error('WebSocket error:', event);
+        });
+        socket.addEventListener('close', function (event) {
+            console.log('WebSocket connection closed');
+        });
+        socket.addEventListener('message', function (event) {
+            const message = event.data;
+            displayMessage(message, 'incoming');
+        });
+        chatForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const message = messageInput.value;
+            socket.send(message);
+            displayMessage(message, 'outgoing');
+            messageInput.value = '';
+        });
+        function displayMessage(message, type) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message', type);
+            messageElement.textContent = message;
+            messagesContainer.appendChild(messageElement);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+    });
+</script>
+</body>
+</html>

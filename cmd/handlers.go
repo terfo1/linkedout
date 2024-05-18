@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/gofiber/fiber/v2"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/bcrypt"
 	"html/template"
 	"io"
+	"log"
+	"net/http"
 	"net/smtp"
 	"strconv"
 	"time"
@@ -42,6 +44,21 @@ type RegisterRequest struct {
 	Email    string `json:"email"`
 	Name     string `json:"name"`
 	Password string `json:"password"`
+}
+
+var storedEmail string
+
+type Message struct {
+	Sender  string
+	Content string
+}
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
 func sendConfirmationEmail(to, token string) error {
@@ -106,10 +123,6 @@ type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
-type LoginResponse struct {
-	AccessToken string `json:"access_token"`
-	RedirectURL string `json:"redirectUrl"`
-}
 
 var (
 	errBadCredentials = errors.New("email or password is incorrect")
@@ -125,7 +138,6 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	if err := c.BodyParser(&regReq); err != nil {
 		return fmt.Errorf("body parser: %w", err)
 	}
-	fmt.Println(regReq)
 	user, err := h.DB.GetUserByEmail(regReq.Email)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString("getuserbyemail fail")
@@ -140,7 +152,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	}
 	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(regReq.Password))
 	if err != nil {
-		// If the error is not nil, the comparison failed, indicating the password is incorrect
+		c.SendString("Password is incorrect")
 		return errBadCredentials
 	}
 	payload := jwt.MapClaims{
@@ -150,7 +162,6 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, payload)
 	t, err := token.SignedString(jwtSecretKey)
-	fmt.Println("ss", t)
 	if err != nil {
 		h.App.logger.Error(err)
 		return c.SendStatus(fiber.StatusInternalServerError)
@@ -164,14 +175,13 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	if h.DB.CheckForAdmin(user.Email) {
 		c.Redirect("/admin")
 	}
+	storeEmail(user.Email)
 	return c.Redirect("/profile")
 }
-
-type ProfileResponse struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
+func storeEmail(email string) {
+	storedEmail = email
+	return
 }
-
 func (h *userHandler) profile(c *fiber.Ctx) error {
 	jwtPayload, ok, err := jwtPayloadFromRequest(c)
 	if !ok {
@@ -294,12 +304,39 @@ func (h *userHandler) Jobs(c *fiber.Ctx) error {
 	}
 	return nil
 }
+
+//	func LoadJobsFromFile(filePath string) ([]Job, error) {
+//		file, err := os.Open(filePath)
+//		if err != nil {
+//			return nil, err
+//		}
+//		defer file.Close()
+//
+//		var jsonData []byte
+//		scanner := bufio.NewScanner(file)
+//		for scanner.Scan() {
+//			line := scanner.Text()
+//			// Remove carriage returns from each line
+//			line = strings.ReplaceAll(line, "\r", "")
+//			jsonData = append(jsonData, line...)
+//		}
+//
+//		var jobs []Job
+//		err = json.Unmarshal(jsonData, &jobs)
+//		if err != nil {
+//			return nil, err
+//		}
+//
+//		return jobs, nil
+//	}
 func (h *userHandler) Admin(c *fiber.Ctx) error {
+	if h.DB.CheckForAdmin(storedEmail) == false {
+		c.SendStatus(401)
+	}
 	form, err := c.MultipartForm()
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
 	}
-
 	var jobs []Job
 	for i := range form.Value["name[]"] {
 		job := Job{
@@ -310,24 +347,35 @@ func (h *userHandler) Admin(c *fiber.Ctx) error {
 		}
 		jobs = append(jobs, job)
 	}
-
+	//jobs, err := LoadJobsFromFile("cmd/jobs.json")
+	//if err != nil {
+	//	log.Fatalf("Failed to load jobs from file: %v", err)
+	//}
 	numJobs := len(jobs)
 	errCh := make(chan error, numJobs)
-
-	for _, job := range jobs {
-		go func(j Job) {
-			addedDate := time.Now()
-			err := h.DB.InsertJob(j.Name, j.Company, j.Description, addedDate, j.Email)
-			errCh <- err
-		}(job)
+	workerCount := 1
+	jobCh := make(chan Job, numJobs)
+	defer close(jobCh)
+	start := time.Now()
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			for job := range jobCh {
+				addedDate := time.Now()
+				err := h.DB.InsertJob(job.Name, job.Company, job.Description, addedDate, job.Email)
+				errCh <- err
+			}
+		}()
 	}
-
+	for _, job := range jobs {
+		jobCh <- job
+	}
+	end := time.Since(start)
 	for i := 0; i < numJobs; i++ {
 		if err := <-errCh; err != nil {
 			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
 	}
-
+	log.Print("time with 2 goroutines:", end)
 	return c.Redirect("/admin")
 }
 func (h *userHandler) ServeAdmin(c *fiber.Ctx) error {
@@ -342,11 +390,9 @@ func (h *userHandler) ServeAdmin(c *fiber.Ctx) error {
 func (h *userHandler) sendAdminEmail(c *fiber.Ctx) error {
 	from := "alisher.temirhan@gmail.com"
 	password := "lfcv mmen wonp ggrx"
-
 	toEmail := c.FormValue("userEmail")
 	smtpHost := "smtp.gmail.com"
 	smtpPort := "587"
-
 	subject := "Message"
 	body := c.FormValue("msg")
 	message := []byte(
@@ -370,6 +416,11 @@ func (h *userHandler) sendAdminEmail(c *fiber.Ctx) error {
 	return nil
 }
 
-type JobRequest struct {
-	Jobs []Job `json:"jobs"`
-}
+//func MessageFromClient(c *websocket.Conn) error {
+//	ws, err := upgrader.Upgrade(c, c, nil)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	Client_Msg := c.FormValue("client_msg")
+//
+//}
