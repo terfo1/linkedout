@@ -190,3 +190,8 @@ func (db *DB) GetUsersEmail() ([]string, error) {
 	}
 	return users, nil
 }
+func (db *DB) ChatCreate(userid string, created_at time.Time) error {
+	ctx := context.Background()
+	_, err := db.Pool.Exec(ctx, "INSERT INTO chats (user_id,created_at) VALUES ($1,$2)", userid, created_at)
+	return err
+}

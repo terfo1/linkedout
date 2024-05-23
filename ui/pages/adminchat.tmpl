@@ -9,47 +9,49 @@
 <body>
 <div id="chat-container">
     <div id="messages"></div>
-    <form id="chat-form">
-        <input name="admin_msg" type="text" id="message-input" placeholder="Type your message..." autocomplete="off" required>
-        <button type="submit">Send</button>
-    </form>
+    <div id="chat-form">
+        <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off" required>
+        <button type="submit" id="send-button">Send</button>
+    </div>
 </div>
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const socket = new WebSocket('ws://localhost:8080/');
-        const messagesContainer = document.getElementById('messages');
-        const chatForm = document.getElementById('chat-form');
-        const messageInput = document.getElementById('message-input');
+    const ws = new WebSocket('ws://' + window.location.host + '/admin/chat/123?v=1.0');
 
-        socket.addEventListener('open', function (event) {
-            console.log('WebSocket connection opened');
-        });
+    ws.onopen = function() {
+        console.log('WebSocket connection opened');
+    };
 
-        socket.addEventListener('error', function (event) {
-            console.error('WebSocket error:', event);
-        });
-        socket.addEventListener('close', function (event) {
-            console.log('WebSocket connection closed');
-        });
-        socket.addEventListener('message', function (event) {
-            const message = event.data;
-            displayMessage(message, 'incoming');
-        });
-        chatForm.addEventListener('submit', function (event) {
-            event.preventDefault();
-            const message = messageInput.value;
-            socket.send(message);
-            displayMessage(message, 'outgoing');
-            messageInput.value = '';
-        });
-        function displayMessage(message, type) {
-            const messageElement = document.createElement('div');
-            messageElement.classList.add('message', type);
-            messageElement.textContent = message;
-            messagesContainer.appendChild(messageElement);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    ws.onmessage = function(event) {
+        const messagesDiv = document.getElementById('messages');
+        const message = document.createElement('div');
+        message.textContent = event.data;
+        message.classList.add('message', 'incoming');
+        messagesDiv.appendChild(message);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    };
+
+    ws.onclose = function() {
+        console.log('WebSocket connection closed');
+    };
+
+    document.getElementById('send-button').addEventListener('click', function() {
+        const input = document.getElementById('message-input');
+        const message = input.value;
+        if (message) {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(message);
+            }
+            input.value = '';
+
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.textContent = message;
+            messageDiv.classList.add('message', 'outgoing');
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
     });
 </script>
+
 </body>
 </html>

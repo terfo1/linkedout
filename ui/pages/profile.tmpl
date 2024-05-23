@@ -3,16 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="static/style.css">
-    <link rel="shortcut icon" href="#">
-    <title>User Profile</title>
+    <title>Profile</title>
+    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+    <link rel="stylesheet" href="/static/profile.css">
 </head>
 <body>
-<div class="container">
-<h1>User Profile</h1>
-<p>Email: {{.Email}}</p>
-<p>Name: {{.Name}}</p>
-<a href="jobs">List of jobs</a>
+<div class="profile-box">
+    <i class='bx bxs-user-circle bx-lg'></i>
+    <h2>{{.Name}}</h2>
+    <p id="clientEmail">{{.Email}}</p>
+    <a href="jobs"><h3>Job Listing</h3></a>
 </div>
+<button id="popupButton"><i class='bx bx-support'></i></button>
+<div id="popup" class="popup">
+    <div class="popup-content">
+        <p>ОЖИДАЙТЕ ПОКА ВАС ПРИМЕТ АДМИН</p>
+        <div class="loader"></div>
+    </div>
+</div>
+<script>
+    document.getElementById('popupButton').addEventListener('click', function() {
+        document.getElementById('popup').style.display = 'flex';
+        const email = document.getElementById('clientEmail').textContent;
+        fetch('/support/email', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email: email })
+        }).then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Email sent successfully!');
+                } else {
+                    alert('Failed to send email.');
+                }
+            });
+    });
+    document.getElementById('popup').addEventListener('click', function(e) {
+        if (e.target === this) {
+            this.style.display = 'none';
+        }
+    });
+</script>
 </body>
 </html>

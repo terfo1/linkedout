@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"fmt"
+	ws "github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
@@ -49,8 +51,17 @@ type RegisterRequest struct {
 var storedEmail string
 
 type Message struct {
-	Sender  string
-	Content string
+	ID        string    `json:"id" gorm:"primaryKey"`
+	ChatID    string    `json:"chat_id"`
+	SenderID  string    `json:"sender_id"`
+	Text      string    `json:"text"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Chat struct {
+	ID        string    `json:"id" gorm:"primaryKey"`
+	UserID    string    `json:"user_id"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 var upgrader = websocket.Upgrader{
@@ -60,6 +71,7 @@ var upgrader = websocket.Upgrader{
 		return true
 	},
 }
+var supportQueue = make(chan string, 10)
 
 func sendConfirmationEmail(to, token string) error {
 	from := "alisher.temirhan@gmail.com"
@@ -154,6 +166,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	if err != nil {
 		c.SendString("Password is incorrect")
 		return errBadCredentials
+
 	}
 	payload := jwt.MapClaims{
 		"sub": user.Email,
@@ -178,9 +191,9 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	storeEmail(user.Email)
 	return c.Redirect("/profile")
 }
-func storeEmail(email string) {
+func storeEmail(email string) error {
 	storedEmail = email
-	return
+	return nil
 }
 func (h *userHandler) profile(c *fiber.Ctx) error {
 	jwtPayload, ok, err := jwtPayloadFromRequest(c)
@@ -416,11 +429,57 @@ func (h *userHandler) sendAdminEmail(c *fiber.Ctx) error {
 	return nil
 }
 
-//func MessageFromClient(c *websocket.Conn) error {
-//	ws, err := upgrader.Upgrade(c, c, nil)
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	Client_Msg := c.FormValue("client_msg")
+func (h *userHandler) WaitingForRequests(c *fiber.Ctx) error {
+	log.Println(storedEmail)
+	if supportQueue == nil {
+		c.SendString("There is no requests for help")
+	} else {
+		c.Render("WaitingForRequests", fiber.Map{
+			"Email": storedEmail,
+		})
+	}
+	return nil
+}
+func (h *userHandler) ServeAdminChat(c *fiber.Ctx) error {
+	return c.Render("adminchat", nil)
+}
+func (h *userHandler) CreateChat(c *fiber.Ctx) error {
+	chatID := uuid.NewString()
+	userEmail := storedEmail
+	chat := Chat{ID: chatID, UserID: userEmail, CreatedAt: time.Now()}
+	result := h.DB.ChatCreate(chat.UserID, chat.CreatedAt)
+	if result != nil {
+		c.Status(500)
+		c.SendString("error in creating chat")
+		return result
+	}
+	return nil
+}
+func (h *userHandler) WaitingRoom(c *fiber.Ctx) error {
+	c.SendString("Wait till our support service accept you")
+	supportQueue <- storedEmail
+	return nil
+}
+
+// func (h *userHandler) SendMessage(c *fiber.Ctx) error {
 //
-//}
+// }
+func (h *userHandler) MessageFromAdmin(c *ws.Conn) {
+	defer func() {
+		if err := c.Close(); err != nil {
+			log.Println("WebSocket Close Error:", err)
+		}
+	}()
+	for {
+		messageType, message, err := c.ReadMessage()
+		if err != nil {
+			log.Println("WebSocket Read Error:", err)
+			break
+		}
+		log.Printf("Received: %s\n", message)
+		if err := c.WriteMessage(messageType, message); err != nil {
+			log.Println("WebSocket Write Error:", err)
+			break
+		}
+	}
+}

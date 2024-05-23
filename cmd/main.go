@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	jwtware "github.com/gofiber/contrib/jwt"
+	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/template/html/v2"
@@ -83,9 +84,22 @@ func main() {
 	}))
 	authorizedGroup.Get("/profile", userHandler.profile)
 	authorizedGroup.Get("/jobs", userHandler.Jobs)
+	authorizedGroup.Get("/help/request", userHandler.WaitingRoom)
+	authorizedGroup.Post("/support/email", storedEmail)
 	authorizedGroup.Get("/admin", userHandler.ServeAdmin)
 	authorizedGroup.Post("/admin", userHandler.Admin)
 	authorizedGroup.Post("/admin/send-mail", userHandler.sendAdminEmail)
+	authorizedGroup.Get("/admin/help", userHandler.WaitingForRequests)
+	authorizedGroup.Use("/admin/chat", func(c *fiber.Ctx) error {
+		if websocket.IsWebSocketUpgrade(c) {
+			c.Locals("allowed", true)
+			return c.Next()
+		} else {
+			userHandler.ServeAdminChat(c)
+		}
+		return fiber.ErrUpgradeRequired
+	})
+	authorizedGroup.Get("/admin/chat/:id", websocket.New(userHandler.MessageFromAdmin))
 	address := flag.String("addr", ":10000", "HTTP server address")
 	flag.Parse()
 	logger.Fatal(app.fiberApp.Listen(*address))

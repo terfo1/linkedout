@@ -33,16 +33,16 @@
             <div id="jobFieldsContainer">
                 <div>
                     <label for="name">Job Name:</label>
-                    <input type="text" name="name[]" required>
+                    <input type="text" name="name[]" id="name" required>
 
                     <label for="company">Company:</label>
-                    <input type="text" name="company[]" required>
+                    <input type="text" name="company[]" id="company" required>
 
                     <label for="description">Description:</label>
-                    <textarea name="description[]" required></textarea>
+                    <textarea name="description[]" id="description" required></textarea>
 
                     <label for="email">Contact Email:</label>
-                    <input type="email" name="email[]" required>
+                    <input type="email" name="email[]" id="email" required>
                     <hr>
                 </div>
             </div>
@@ -60,9 +60,10 @@
                                  {{end}}
                              </select>
                              <label for="msg">Message</label>
-                             <input type="text" name="msg" required>
+                             <input type="text" name="msg" id="msg" required>
                              <button type="submit">Send</button>
                 </form>
         </section>
+    <a href="/admin/help">Chat with clients</a>
 </body>
 </html>
