@@ -7,8 +7,27 @@
 </head>
 <body>
 <p>There is a request from {{ .Email }}</p>
-<form action="/admin/chat" method="get">
-    <button type="submit">Go to Chat</button>
+<form id="chatForm" action="/admin/chat" method="get">
+    <button id="btn" type="submit">Go to Chat</button>
 </form>
+<script>
+    document.getElementById('btn').addEventListener('click', function(event) {
+        event.preventDefault();  // Prevent form submission
+        fetch('/support/request', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ success: true })
+        }).then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('chatForm').submit();  // Submit the form if the request was successful
+                } else {
+                    alert('Failed to send request.');
+                }
+            });
+    });
+</script>
 </body>
 </html>

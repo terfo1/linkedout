@@ -10,8 +10,12 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"os"
+	"sync"
 	"time"
 )
+
+var adminConnections = make(map[string]*websocket.Conn)
+var clientConnections = make(map[string]*websocket.Conn)
 
 type application struct {
 	fiberApp *fiber.App
@@ -22,8 +26,13 @@ type AuthHandler struct {
 	App *application
 }
 type userHandler struct {
-	DB  *DB
-	App *application
+	DB          *DB
+	App         *application
+	mu          sync.Mutex
+	clientConns map[string]*websocket.Conn
+	adminConns  map[string]*websocket.Conn
+	broadcastCh chan []byte
+	stopCh      chan struct{}
 }
 
 func main() {
@@ -84,22 +93,28 @@ func main() {
 	}))
 	authorizedGroup.Get("/profile", userHandler.profile)
 	authorizedGroup.Get("/jobs", userHandler.Jobs)
-	authorizedGroup.Get("/help/request", userHandler.WaitingRoom)
-	authorizedGroup.Post("/support/email", storedEmail)
+	authorizedGroup.Post("/support/email", userHandler.SendEmail)
 	authorizedGroup.Get("/admin", userHandler.ServeAdmin)
 	authorizedGroup.Post("/admin", userHandler.Admin)
 	authorizedGroup.Post("/admin/send-mail", userHandler.sendAdminEmail)
 	authorizedGroup.Get("/admin/help", userHandler.WaitingForRequests)
-	authorizedGroup.Use("/admin/chat", func(c *fiber.Ctx) error {
+	authorizedGroup.Post("/support/request", userHandler.ClientRedirectAfterPressingByAdmin)
+	checkWebSocketUpgrade := func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
 			c.Locals("allowed", true)
 			return c.Next()
 		} else {
-			userHandler.ServeAdminChat(c)
+			return fiber.ErrUpgradeRequired
 		}
-		return fiber.ErrUpgradeRequired
-	})
-	authorizedGroup.Get("/admin/chat/:id", websocket.New(userHandler.MessageFromAdmin))
+	}
+	authorizedGroup.Get("/support/chata", userHandler.ServeAdminChat)
+	authorizedGroup.Get("/support/chatc", userHandler.ServeClientChat) //userHandler.CheckingForChat)
+	authorizedGroup.Use("/support/chat/ws", checkWebSocketUpgrade)
+	authorizedGroup.Get("/support/chat/ws/admin", websocket.New(userHandler.handleConns))
+	authorizedGroup.Get("/support/chat/ws/client", websocket.New(userHandler.handleConns))
+	go handleMessages()
+	authorizedGroup.Get("/checkout", userHandler.serverCheckout)
+	authorizedGroup.Post("/checkout", userHandler.CheckoutHandler)
 	address := flag.String("addr", ":10000", "HTTP server address")
 	flag.Parse()
 	logger.Fatal(app.fiberApp.Listen(*address))

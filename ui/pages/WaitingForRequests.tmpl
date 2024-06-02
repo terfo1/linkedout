@@ -7,8 +7,39 @@
 </head>
 <body>
 <p>There is a request from {{ .Email }}</p>
-<form action="/support/chat" method="get">
-    <button type="submit">Go to Chat</button>
-</form>
+<button id="btn" type="submit">Go to Chat</button>
+<script>
+    document.getElementById('btn').addEventListener('click', function(event) {
+        event.preventDefault();
+        fetch('/support/request', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ success: true })
+        }).then(response => {
+            return response.text().then(text => {
+                if (!response.ok) {
+                    throw new Error(`Network response was not ok: ${response.status} ${text}`);
+                }
+                try {
+                    return JSON.parse(text);
+                } catch (error) {
+                    throw new Error(`Failed to parse JSON: ${text}`);
+                }
+            });
+        }).then(data => {
+            if (data.success) {
+
+                window.location.href = '/support/chata';
+            } else {
+                alert('Failed to send request.');
+            }
+        }).catch(error => {
+            console.error('There was a problem with the fetch operation:', error);
+            alert('Failed to send request.');
+        });
+    });
+</script>
 </body>
 </html>

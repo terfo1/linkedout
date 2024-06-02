@@ -15,43 +15,45 @@
     </div>
 </div>
 <script>
-    const ws = new WebSocket('ws://' + window.location.host + '/admin/chat/123?v=1.0');
+    const socket = new WebSocket('ws://' + window.location.host + '/support/chat/ws/admin');
+    document.addEventListener('DOMContentLoaded', () => {
+        const messagesContainer = document.getElementById('messages');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
 
-    ws.onopen = function() {
-        console.log('WebSocket connection opened');
-    };
+        socket.addEventListener('open', function (event) {
+            console.log('WebSocket connection opened');
+        });
 
-    ws.onmessage = function(event) {
-        const messagesDiv = document.getElementById('messages');
-        const message = document.createElement('div');
-        message.textContent = event.data;
-        message.classList.add('message', 'incoming');
-        messagesDiv.appendChild(message);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    };
+        socket.addEventListener('error', function (event) {
+            console.error('WebSocket error:', event);
+        });
 
-    ws.onclose = function() {
-        console.log('WebSocket connection closed');
-    };
+        socket.addEventListener('close', function (event) {
+            console.log('WebSocket connection closed');
+        });
 
-    document.getElementById('send-button').addEventListener('click', function() {
-        const input = document.getElementById('message-input');
-        const message = input.value;
-        if (message) {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(message);
+        socket.addEventListener('message', function (event) {
+            const message = event.data;
+            displayMessage(message, 'incoming');
+        });
+
+        sendButton.addEventListener('click', function () {
+            const message = messageInput.value;
+            if (message) {
+                socket.send(message);
+                messageInput.value = '';
             }
-            input.value = '';
+        });
 
-            const messagesDiv = document.getElementById('messages');
-            const messageDiv = document.createElement('div');
-            messageDiv.textContent = message;
-            messageDiv.classList.add('message', 'outgoing');
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        function displayMessage(message, type) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message', type);
+            messageElement.textContent = message;
+            messagesContainer.appendChild(messageElement);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
     });
 </script>
-
 </body>
 </html>

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout</title>
+</head>
+<body>
+<h1>Checkout</h1>
+<form id="checkoutForm">
+    <label for="subscription">Subscription:</label>
+    <input type="text" id="subscription" name="subscription"><br><br>
+
+    <label for="email">Email:</label>
+    <input type="email" id="email" name="email"><br><br>
+
+    <button type="button" onclick="submitForm()">Submit</button>
+</form>
+<script>
+    function submitForm() {
+        var form = document.getElementById("checkoutForm");
+        var formData = new FormData(form);
+
+        fetch('http://127.0.0.1:10000/checkout', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                subscription: formData.get('subscription'),
+                email: formData.get('email')
+            })
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                // Process response if needed
+                return response.json();
+            })
+            .then(data => {
+                // Handle successful response, if needed
+                console.log(data);
+            })
+            .catch(error => {
+                console.error('There was an error!', error);
+                alert("Error: " + error.message);
+            });
+    }
+</script>
+</body>
+</html>

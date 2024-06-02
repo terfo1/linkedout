@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	ws "github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
@@ -64,6 +65,12 @@ type Chat struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+//type clients struct {
+//	socket  *websocket.Conn
+//	receive chan []byte
+//	room    *room
+//}`
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -86,9 +93,7 @@ func sendConfirmationEmail(to, token string) error {
 		"\r\n" +
 		"Here is your confirmation token:\r\n" +
 		token + "\r\n")
-
 	auth := smtp.PlainAuth("", from, password, smtpHost)
-
 	err := smtp.SendMail(smtpHost+":"+smtpPort, auth, from, toEmail, message)
 	if err != nil {
 		fmt.Println(err)
@@ -428,38 +433,214 @@ func (h *userHandler) sendAdminEmail(c *fiber.Ctx) error {
 	fmt.Println("Email Sent Successfully!")
 	return nil
 }
+func (h *userHandler) ClientRedirectAfterPressingByAdmin(c *fiber.Ctx) error {
+	var requestData struct {
+		Success bool `json:"success"`
+	}
+	if err := c.BodyParser(&requestData); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Invalid request"})
+	}
 
+	if requestData.Success {
+		h.mu.Lock()
+		if h.clientConns["client"] != nil {
+			h.clientConns["client"].WriteMessage(websocket.TextMessage, []byte("redirect"))
+		}
+		h.mu.Unlock()
+		return c.JSON(fiber.Map{"success": true})
+	}
+
+	return c.JSON(fiber.Map{"success": false, "message": "Request not successful"})
+}
 func (h *userHandler) WaitingForRequests(c *fiber.Ctx) error {
-	log.Println(storedEmail)
-	if supportQueue == nil {
+	em := <-supportQueue
+	log.Println("loh" + em)
+	if em == "" {
 		c.SendString("There is no requests for help")
 	} else {
 		c.Render("WaitingForRequests", fiber.Map{
-			"Email": storedEmail,
+			"Email": em,
 		})
 	}
 	return nil
 }
+
+//	func (c *clients) readMsg() {
+//		defer c.socket.Close()
+//		for {
+//			_, msg, err := c.socket.ReadMessage()
+//			if err != nil {
+//				log.Print(err)
+//				return
+//			}
+//			c.room.forward <- msg
+//		}
+//	}
+//
+//	func (c *clients) writeMsg() {
+//		defer c.socket.Close()
+//		for msg := range c.receive {
+//			err := c.socket.WriteMessage(ws.TextMessage, msg)
+//			if err != nil {
+//				log.Println(err)
+//				return
+//			}
+//		}
+//	}
+//
+// # Another way
+//
+//	func (h *userHandler) run() {
+//		for {
+//			select {
+//			case message := <-h.broadcastCh:
+//				h.broadcastMessage(message)
+//			case <-h.stopCh:
+//				return
+//			}
+//		}
+//	}
+//
+//	func (h *userHandler) broadcastMessage(message []byte) {
+//		h.mu.Lock()
+//		defer h.mu.Unlock()
+//
+//		for _, conn := range h.clientConns {
+//			if err := conn.WriteMessage(ws.TextMessage, message); err != nil {
+//				log.Println("Error broadcasting to client:", err)
+//			}
+//		}
+//
+//		for _, conn := range h.adminConns {
+//			if err := conn.WriteMessage(ws.TextMessage, message); err != nil {
+//				log.Println("Error broadcasting to admin:", err)
+//			}
+//		}
+//	}
+//
+//	func (h *userHandler) handleClientWebSocket(c *ws.Conn) {
+//		defer func() {
+//			h.mu.Lock()
+//			delete(h.clientConns, "client")
+//			h.mu.Unlock()
+//			c.Close()
+//		}()
+//
+//		h.mu.Lock()
+//		h.clientConns["client"] = c
+//		h.mu.Unlock()
+//
+//		for {
+//			_, message, err := c.ReadMessage()
+//			if err != nil {
+//				break
+//			}
+//			log.Printf("Received from client: %s\n", message)
+//			h.broadcastMessage(message)
+//			log.Printf("Broadcasted to admins: %s\n", message)
+//		}
+//	}
+//
+//	func (h *userHandler) handleAdminWebSocket(c *ws.Conn) {
+//		defer func() {
+//			h.mu.Lock()
+//			delete(h.adminConns, "admin")
+//			h.mu.Unlock()
+//			c.Close()
+//		}()
+//
+//		h.mu.Lock()
+//		h.adminConns["admin"] = c
+//		h.mu.Unlock()
+//
+//		for {
+//			_, message, err := c.ReadMessage()
+//			if err != nil {
+//				break
+//			}
+//			log.Printf("Received from admin: %s\n", message)
+//			h.broadcastMessage(message)
+//			log.Printf("Broadcasted to clients: %s\n", message)
+//		}
+//	}
+var clients = make(map[*ws.Conn]bool)
+var broadcast = make(chan []byte)
+
+func (h *userHandler) handleConns(c *ws.Conn) {
+	defer c.Close()
+
+	clients[c] = true
+
+	for {
+		_, msg, err := c.ReadMessage()
+		if err != nil {
+			fmt.Println(err)
+			delete(clients, c)
+			return
+		}
+		log.Println("incoming msg to broadcast", string(msg))
+		broadcast <- msg
+	}
+}
+func handleMessages() {
+	for {
+		msg := <-broadcast
+		log.Println("outcoming msg from broadcast", string(msg))
+		for client := range clients {
+			err := client.WriteMessage(ws.TextMessage, msg)
+			if err != nil {
+				fmt.Println(err)
+				client.Close()
+				delete(clients, client)
+			}
+		}
+	}
+}
+func (h *userHandler) ServeClientChat(c *fiber.Ctx) error {
+	return c.Render("clientchat", nil)
+}
 func (h *userHandler) ServeAdminChat(c *fiber.Ctx) error {
 	return c.Render("adminchat", nil)
 }
-func (h *userHandler) CreateChat(c *fiber.Ctx) error {
-	chatID := uuid.NewString()
-	userEmail := storedEmail
-	chat := Chat{ID: chatID, UserID: userEmail, CreatedAt: time.Now()}
-	result := h.DB.ChatCreate(chat.UserID, chat.CreatedAt)
-	if result != nil {
-		c.Status(500)
-		c.SendString("error in creating chat")
-		return result
+
+//func (h *userHandler) CheckingForChat(c *fiber.Ctx) error {
+//	chatID := uuid.NewString()
+//	userEmail := storedEmail
+//	chat := Chat{ID: chatID, UserID: userEmail, CreatedAt: time.Now()}
+//	if h.DB.CheckExistChat(chat.UserID) {
+//
+//	} else {
+//		result := h.DB.ChatCreate(chat.UserID, chat.CreatedAt)
+//		if result != nil {
+//			c.Status(500)
+//			c.SendString("error in creating chat")
+//			return result
+//		}
+//	}
+//	return nil
+//}
+
+var ClientEmail string
+
+func (h *userHandler) SendEmail(c *fiber.Ctx) error {
+	var request struct {
+		Email string `json:"email"`
 	}
+	if err := json.Unmarshal(c.Body(), &request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Invalid request body"})
+	}
+	if request.Email == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Email is required"})
+	}
+	supportQueue <- request.Email
 	return nil
 }
-func (h *userHandler) WaitingRoom(c *fiber.Ctx) error {
-	c.SendString("Wait till our support service accept you")
-	supportQueue <- storedEmail
-	return nil
-}
+
+//func (h *userHandler) WaitingRoom(c *fiber.Ctx) error {
+//	c.SendString("Wait till our support service accept you")
+//	supportQueue <- ClientEmail
+//	return nil
+//}
 
 // func (h *userHandler) SendMessage(c *fiber.Ctx) error {
 //
@@ -482,4 +663,46 @@ func (h *userHandler) MessageFromAdmin(c *ws.Conn) {
 			break
 		}
 	}
+}
+
+type Transaction struct {
+	TransactionID string `json:"transaction_id"`
+	Subscription  string `json:"subscription"`
+	Email         string `json:"email"`
+}
+
+func (h *userHandler) serverCheckout(c *fiber.Ctx) error {
+	return c.Render("checkout", nil)
+}
+func (h *userHandler) CheckoutHandler(c *fiber.Ctx) error {
+	var transaction Transaction
+	if err := c.BodyParser(&transaction); err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
+	}
+	transaction.TransactionID = uuid.New().String()
+	fmt.Println("Transaction:", transaction)
+
+	// Marshal transaction data to JSON
+	transactionJSON, err := json.Marshal(transaction)
+	if err != nil {
+		fmt.Println("Error after marshal:", err)
+		return c.Status(fiber.StatusInternalServerError).SendString("Error marshaling JSON")
+	}
+
+	// Send HTTP POST request to create-transaction endpoint
+	resp, err := http.Post("http://127.0.0.1:8081/create-transaction", "application/json", bytes.NewBuffer(transactionJSON))
+	if err != nil {
+		fmt.Println("Error after POST request:", err)
+		return c.Status(fiber.StatusInternalServerError).SendString("Error sending HTTP request")
+	}
+	defer resp.Body.Close()
+
+	// Check the response status code
+	if resp.StatusCode != http.StatusOK {
+		fmt.Println("Error response status:", resp.Status)
+		return c.Status(fiber.StatusInternalServerError).SendString("Unexpected status code from server")
+	}
+
+	// If everything is successful, send a response
+	return c.SendString("Transaction successfully processed")
 }
