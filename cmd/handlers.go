@@ -14,6 +14,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/smtp"
 	"strconv"
@@ -674,20 +675,35 @@ type Transaction struct {
 func (h *userHandler) serverCheckout(c *fiber.Ctx) error {
 	return c.Render("checkout", nil)
 }
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
+func generateUniqueStringID() string {
+	var id string
+	for {
+		number := rand.Intn(1000000)
+		id = strconv.Itoa(number)
+		if len(id) <= 6 {
+			break
+		}
+	}
+	return id
+}
 func (h *userHandler) CheckoutHandler(c *fiber.Ctx) error {
 	var transaction Transaction
 	if err := c.BodyParser(&transaction); err != nil {
 		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
 	}
-	transaction.TransactionID = uuid.New().String()
-	fmt.Println("Transaction:", transaction)
+	transaction.TransactionID = generateUniqueStringID()
 
-	// Marshal transaction data to JSON
+	fmt.Println("Transaction:", transaction)
 	transactionJSON, err := json.Marshal(transaction)
 	if err != nil {
 		fmt.Println("Error after marshal:", err)
 		return c.Status(fiber.StatusInternalServerError).SendString("Error marshaling JSON")
 	}
+	fmt.Println("JSONTrans", string(transactionJSON))
 
 	// Send HTTP POST request to create-transaction endpoint
 	resp, err := http.Post("http://127.0.0.1:8081/create-transaction", "application/json", bytes.NewBuffer(transactionJSON))
@@ -696,13 +712,14 @@ func (h *userHandler) CheckoutHandler(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).SendString("Error sending HTTP request")
 	}
 	defer resp.Body.Close()
+	
+	body, _ := io.ReadAll(resp.Body)
+	fmt.Println("Response Body:", string(body))
 
-	// Check the response status code
 	if resp.StatusCode != http.StatusOK {
-		fmt.Println("Error response status:", resp.Status)
-		return c.Status(fiber.StatusInternalServerError).SendString("Unexpected status code from server")
+		fmt.Println("Error response status:", resp.Status, "Body:", string(body))
+		return c.Status(fiber.StatusInternalServerError).SendString("Unexpected status code from server: " + string(body))
 	}
 
-	// If everything is successful, send a response
 	return c.SendString("Transaction successfully processed")
 }
